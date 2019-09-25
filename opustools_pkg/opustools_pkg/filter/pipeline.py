@@ -1,6 +1,7 @@
 """Filter pipeline"""
 
 import itertools
+import logging
 import sys
 
 from . import LengthRatioFilter, LanguageIDFilter, \
@@ -8,6 +9,9 @@ from . import LengthRatioFilter, LanguageIDFilter, \
     TerminalPunctuationFilter, NonZeroNumeralsFilter
 from .lm import CrossEntropyFilter
 from .word_alignment import WordAlignFilter
+
+
+logger = logging.getLogger(__name__)
 
 
 def grouper(iterable, n):
@@ -41,7 +45,8 @@ class FilterPipeline:
     def score(self, pairs):
         """Yield dictionaries of filter scores for sentence pairs"""
         fnames = [f.__class__.__name__ for f in self.filters]
-        for chunk in grouper(pairs, self._chunksize):
+        for num, chunk in enumerate(grouper(pairs, self._chunksize)):
+            logger.info("Processing chunk %s", num)
             for scores in zip(*[f.score(chunk) for f in self.filters]):
                 yield {fnames[idx]: score for idx, score in enumerate(scores)}
 
