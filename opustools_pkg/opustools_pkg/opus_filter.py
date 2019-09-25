@@ -42,14 +42,19 @@ class OpusFilter:
                 'score': self.score_data
             }
 
-    def execute_steps(self):
+    def execute_steps(self, overwrite=False):
         """Execute steps in the same order as they are in the configuration"""
         for num, step in enumerate(self.configuration['steps']):
             logger.info('Running step {}: {}'.format(num + 1, step))
-            self.step_functions[step['type']](step['parameters'])
+            self.step_functions[step['type']](step['parameters'], overwrite=overwrite)
 
-    def read_from_opus(self, parameters):
+    def read_from_opus(self, parameters, overwrite=False):
         """Download and read a corpus from OPUS"""
+        src_out = os.path.join(self.output_dir, parameters['src_output'])
+        tgt_out = os.path.join(self.output_dir, parameters['tgt_output'])
+        if not overwrite and os.path.isfile(src_out) and os.path.isfile(tgt_out):
+            logger.info("Output files exists, skipping step")
+            return
         opus_reader = OpusRead('-d {corpus_name} -s {src} -t {tgt} '
             '-r {version} -p {preprocessing} -wm moses '
             '-w {result_dir}/{src_filename} '
@@ -83,28 +88,29 @@ class OpusFilter:
             result_dir=self.output_dir, tgt_filename=tgt_filename)
         return self.pair_generator(source_file_name, target_file_name)
 
-    def clean_data(self, parameters):
+    def clean_data(self, parameters, overwrite=False):
         """Write sentences to file if they pass given filters"""
+        src_out = os.path.join(self.output_dir, parameters['src_output'])
+        tgt_out = os.path.join(self.output_dir, parameters['tgt_output'])
+        if not overwrite and os.path.isfile(src_out) and os.path.isfile(tgt_out):
+            logger.info("Output files exists, skipping step")
+            return
         filter_pipe = FilterPipeline.from_config(parameters['filters'])
         pairs_gen = self.get_pairs(parameters['src_input'],
                 parameters['tgt_input'])
         pairs = filter_pipe.filter(pairs_gen)
-
-        source_file_name = '{result_dir}/{src_filtered}'.format(
-            result_dir=self.output_dir,
-            src_filtered=parameters['src_output'])
-        target_file_name = '{result_dir}/{tgt_filtered}'.format(
-            result_dir=self.output_dir,
-            tgt_filtered=parameters['tgt_output'])
-
-        with file_open(source_file_name, 'w') as source_file, \
-                file_open(target_file_name, 'w') as target_file:
+        with file_open(src_out, 'w') as source_file, \
+                file_open(tgt_out, 'w') as target_file:
             for pair in pairs:
                 source_file.write(pair[0]+'\n')
                 target_file.write(pair[1]+'\n')
 
-    def train_ngram(self, parameters):
+    def train_ngram(self, parameters, overwrite=False):
         """Train an n-gram language model"""
+        model_out = os.path.join(self.output_dir, parameters['model'])
+        if not overwrite and os.path.isfile(model_out):
+            logger.info("Output file exists, skipping step")
+            return
         data_name = parameters['data']
         seg_name = data_name + '.seg.gz'
         tokenizer = lm.LMTokenizer(**parameters['parameters'])
@@ -115,24 +121,29 @@ class OpusFilter:
             for line in infile:
                 tokens = tokenizer.tokenize(line.strip())
                 outfile.write(' '.join(tokens) + '\n')
-        lm.train(os.path.join(self.output_dir, seg_name),
-                 os.path.join(self.output_dir, parameters['model']),
+        lm.train(os.path.join(self.output_dir, seg_name), model_out,
                  **parameters['parameters'])
 
-    def train_alignment(self, parameters):
+    def train_alignment(self, parameters, overwrite=False):
         """Train eflomal alignment priors"""
+        model_out = os.path.join(self.output_dir, parameters['output'])
+        if not overwrite and os.path.isfile(model_out):
+            logger.info("Output file exists, skipping step")
+            return
         pair_gen = self.pair_generator(
                 os.path.join(self.output_dir, parameters['src_data']),
                 os.path.join(self.output_dir, parameters['tgt_data']),
                 src_tokenizer=parameters['parameters'].get('src_tokenizer', None),
                 tgt_tokenizer=parameters['parameters'].get('tgt_tokenizer', None))
         word_alignment.make_priors(
-                pair_gen,
-                os.path.join(self.output_dir, parameters['output']),
-                model=parameters['parameters']['model'])
+                pair_gen, model_out, model=parameters['parameters']['model'])
 
-    def score_data(self, parameters):
+    def score_data(self, parameters, overwrite=False):
         """Score language data based on given filters"""
+        score_out = os.path.join(self.output_dir, parameters['output'])
+        if not overwrite and os.path.isfile(score_out):
+            logger.info("Output file exists, skipping step")
+            return
         for f in parameters['filters']:
             filter_name = next(iter(f.items()))[0]
             if filter_name == 'WordAlignFilter' and 'priors' in f[filter_name]:
@@ -148,13 +159,9 @@ class OpusFilter:
 
         pairs_gen = self.get_pairs(parameters['src_input'],
                 parameters['tgt_input'])
-
         filter_pipe = FilterPipeline.from_config(parameters['filters'])
         scores_gen = filter_pipe.score(pairs_gen)
 
-        score_file_name = ('{result_dir}/{scored_name}'.format(
-            result_dir=self.output_dir,
-            scored_name=parameters['output']))
-        with file_open(score_file_name, 'w') as score_file:
+        with file_open(score_out, 'w') as score_file:
             for score in scores_gen:
                 score_file.write(json.dumps(score, sort_keys=True)+'\n')
