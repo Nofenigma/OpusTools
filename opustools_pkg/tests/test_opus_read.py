@@ -7,6 +7,7 @@ import xml.parsers.expat
 import gzip
 import shutil
 import zipfile
+import bz2
 
 from opustools_pkg import OpusRead, OpusCat, OpusGet
 
@@ -2177,6 +2178,16 @@ class TestOpusRead(unittest.TestCase):
             'id="T1S" value="00:00:01,500" />ГИБЛИ" студиясы<time '
             'id="T1E" value="00:00:04,500" '
             '/>\n================================\n')
+
+    def test_writing_to_compressed_files(self):
+        OpusRead('-d RF -s en -t sv -m 1 -w '
+        'test_files/en-sv_test.bz2'.split()).printPairs()
+        with bz2.open('test_files/en-sv_test.bz2') as bz2file:
+            self.assertEqual(type(bz2file), bz2.BZ2File)
+        OpusRead('-d RF -s en -t sv -m 1 -w '
+        'test_files/en-sv_test.gz'.split()).printPairs()
+        with gzip.open('test_files/en-sv_test.gz') as gzipfile:
+            self.assertEqual(type(gzipfile), gzip.GzipFile)
         
 class TestOpusCat(unittest.TestCase):
 
